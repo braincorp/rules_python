@@ -204,6 +204,11 @@ def _pip_repository_impl(rctx):
         args += ["--python_interpreter", _get_python_interpreter_attr(rctx)]
         if rctx.attr.python_interpreter_target:
             args += ["--python_interpreter_target", str(rctx.attr.python_interpreter_target)]
+        if rctx.attr.pip_platform_definitions:
+            args += [
+                "--pip_platform_definitions",
+                struct(arg = {str(k): v for k, v in rctx.attr.pip_platform_definitions.items()}).to_json(),
+            ]
         progress_message = "Parsing requirements to starlark"
     else:
         args = [
@@ -331,6 +336,11 @@ pip_repository_attrs = {
         default = False,
         doc = "Create the repository in incremental mode.",
     ),
+    "pip_platform_definitions": attr.label_keyed_string_dict(
+        doc = """
+A map of select keys to platform definitions in the form <platform>-<python_version>-<implementation>-<abi>"
+        """,
+    ),
     "requirements": attr.label(
         allow_single_file = True,
         doc = "A 'requirements.txt' pip requirements file.",
@@ -426,6 +436,12 @@ def _whl_library_impl(rctx):
 
     args = _parse_optional_attrs(rctx, args)
 
+    if rctx.attr.pip_platform_definition:
+        args.extend([
+            "--pip_platform_definition",
+            rctx.attr.pip_platform_definition,
+        ])
+
     result = rctx.execute(
         args,
         # Manually construct the PYTHONPATH since we cannot use the toolchain here
@@ -446,6 +462,9 @@ whl_library_attrs = {
             "See `package_annotation`"
         ),
         allow_files = True,
+    ),
+    "pip_platform_definition": attr.string(
+        doc = "A pip platform definition in the form <platform>-<python_version>-<implementation>-<abi>",
     ),
     "repo": attr.string(
         mandatory = True,
@@ -501,3 +520,29 @@ def package_annotation(
         data_exclude_glob = data_exclude_glob,
         srcs_exclude_glob = srcs_exclude_glob,
     ))
+
+_PLATFORM_ALIAS_TMPL = """
+alias(
+    name = "pkg",
+    actual = select({select_items}),
+    visibility = ["//visibility:public"],
+)
+"""
+
+def _impl_platform_alias(rctx):
+    rctx.file(
+        "BUILD",
+        content = _PLATFORM_ALIAS_TMPL.format(
+            select_items = rctx.attr.select_items,
+        ),
+        executable = False,
+    )
+
+platform_alias = repository_rule(
+    attrs = {
+        "select_items": attr.string_dict(),
+    },
+    implementation = _impl_platform_alias,
+    doc = """
+An internal rule used to create an alias for a pip package for the appropriate platform.""",
+)

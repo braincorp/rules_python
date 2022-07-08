@@ -155,8 +155,10 @@ def main() -> None:
 
     _configure_reproducible_wheels()
 
+    base_pip_args = [sys.executable, "-m", "pip"]
+
     pip_args = (
-        [sys.executable, "-m", "pip"]
+        base_pip_args
         + (["--isolated"] if args.isolated else [])
         + (["download", "--only-binary=:all:"] if args.download_only else ["wheel"])
         + ["--no-deps"]
@@ -172,12 +174,19 @@ def main() -> None:
         requirement_file.close()
         # Requirement specific args like --hash can only be passed in a requirements file,
         # so write our single requirement into a temp file in case it has any of those flags.
-        pip_args.extend(["-r", requirement_file.name])
+        requirement_file_args = ["-r", requirement_file.name]
+        pip_args.extend(requirement_file_args)
 
         env = os.environ.copy()
         env.update(deserialized_args["environment"])
         # Assumes any errors are logged by pip so do nothing. This command will fail if pip fails
-        subprocess.run(pip_args, check=True, env=env)
+        check = not args.download_only
+        res = subprocess.run(pip_args, check=check, env=env)
+        # fallback for source distributable
+        if res.returncode != 0:
+            pip_cmd = base_pip_args + ["wheel", "--no-deps"] + requirement_file_args
+            subprocess.run(pip_cmd, check=True, env=env)
+
     finally:
         try:
             os.unlink(requirement_file.name)

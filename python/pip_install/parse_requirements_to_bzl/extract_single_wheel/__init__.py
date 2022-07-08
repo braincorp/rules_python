@@ -37,28 +37,28 @@ def main() -> None:
 
     configure_reproducible_wheels()
 
-    pip_args =  [sys.executable, "-m", "pip"]
-    
-    if args.pip_platform_definition:
+    base_pip_args =  [sys.executable, "-m", "pip"]
+    default_pip_args = [
+        "wheel",
+        "--no-deps",
+        ] + deserialized_args["extra_pip_args"]
+    if args.isolated:
+        default_pip_args.append("--isolated")
+
+    pip_platform_set = args.pip_platform_definition is not None
+
+    if pip_platform_set:
         platform, python_version, implementation, abi = args.pip_platform_definition.split("-")
-        pip_args.extend([
+        platform_pip_args = [
             "download",
+            "--no-deps",
             "--only-binary", ":all:",
             "--platform", platform,
             "--python-version", python_version,
             "--implementation", implementation,
             "--abi", abi
-        ])
-    else:
-        pip_args.extend([
-            "wheel",
-            "--no-deps",
-            ] + deserialized_args["extra_pip_args"]
-        )
-        if args.isolated:
-            pip_args.extend(["--isolated"])
+        ]
         
-
     requirement_file = NamedTemporaryFile(mode="wb", delete=False)
     try:
         requirement_file.write(args.requirement.encode("utf-8"))
@@ -68,12 +68,20 @@ def main() -> None:
         requirement_file.close()
         # Requirement specific args like --hash can only be passed in a requirements file,
         # so write our single requirement into a temp file in case it has any of those flags.
-        pip_args.extend(["-r", requirement_file.name])
+        requirement_file_args = ["-r", requirement_file.name]
+        pip_cmd = base_pip_args + default_pip_args + requirement_file_args
+        if pip_platform_set:
+            pip_cmd = base_pip_args + platform_pip_args + requirement_file_args
 
         env = os.environ.copy()
         env.update(deserialized_args["environment"])
         # Assumes any errors are logged by pip so do nothing. This command will fail if pip fails
-        subprocess.run(pip_args, check=True, env=env)
+        check = not pip_platform_set
+        res = subprocess.run(pip_cmd, env=env, check=check)
+        # fallback for pure python modules
+        if pip_platform_set and res.returncode != 0:
+            pip_cmd = base_pip_args + default_pip_args + requirement_file_args
+            subprocess.run(pip_cmd, check=True, env=env)
     finally:
         try:
             os.unlink(requirement_file.name)

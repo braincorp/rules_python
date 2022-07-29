@@ -531,7 +531,12 @@ def package_annotation(
 _PLATFORM_ALIAS_TMPL = """
 alias(
     name = "pkg",
-    actual = select({select_items}),
+    actual = select({pkg_select_items}),
+    visibility = ["//visibility:public"],
+)
+alias(
+    name = "whl",
+    actual = select({whl_select_items}),
     visibility = ["//visibility:public"],
 )
 """
@@ -540,14 +545,16 @@ def _impl_platform_alias(rctx):
     rctx.file(
         "BUILD",
         content = _PLATFORM_ALIAS_TMPL.format(
-            select_items = rctx.attr.select_items,
+            pkg_select_items = rctx.attr.pkg_select_items,
+            whl_select_items = rctx.attr.whl_select_items,
         ),
         executable = False,
     )
 
 platform_alias = repository_rule(
     attrs = {
-        "select_items": attr.string_dict(),
+        "pkg_select_items": attr.string_dict(),
+        "whl_select_items": attr.string_dict(),
     },
     implementation = _impl_platform_alias,
     doc = """

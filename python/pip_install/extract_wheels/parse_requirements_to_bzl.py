@@ -80,13 +80,15 @@ def repo_names_and_requirements(
         if not platforms:
             whls.append((generic_name, line, None))
         else:
-            select_items = {}
+            pkg_select_items = {}
+            whl_select_items = {}
             for key, platform in platforms.items():
                 prefix = bazel.sanitise_name(platform, prefix=repo_prefix) + "__"
                 name = bazel.sanitise_name(ir.name, prefix=prefix)
                 whls.append((name, line, platform))
-                select_items[key] = "@{name}//:pkg".format(name=name)
-            aliases.append((generic_name, select_items))
+                pkg_select_items[key] = "@{name}//:pkg".format(name=name)
+                whl_select_items[key] = "@{name}//:whl".format(name=name)
+            aliases.append((generic_name, pkg_select_items, whl_select_items))
     return NamesAndRequirements(whls, aliases)
 
 
@@ -184,10 +186,11 @@ def generate_parsed_requirements_contents(
                     pip_platform_definition = platform,
                     **_config
                 )
-            for name, select_items in _aliases:
+            for name, pkg_select_items, whl_select_items in _aliases:
                 platform_alias(
                     name = name,
-                    select_items = select_items,
+                    pkg_select_items = pkg_select_items,
+                    whl_select_items = whl_select_items
                 )
         """.format(
             all_requirements=all_requirements,

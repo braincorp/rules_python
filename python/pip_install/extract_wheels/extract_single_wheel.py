@@ -39,9 +39,9 @@ def main() -> None:
 
     configure_reproducible_wheels()
 
-    base_pip_args =  [sys.executable, "-m", "pip"]
+    base_pip_args = [sys.executable, "-m", "pip"]
     default_pip_args = [
-        "wheel",
+        "download" if args.download_only else "wheel",
         "--no-deps",
         ] + deserialized_args["extra_pip_args"]
     if args.isolated:
@@ -60,7 +60,7 @@ def main() -> None:
             "--implementation", implementation,
             "--abi", abi
         ]
-        
+
     requirement_file = NamedTemporaryFile(mode="wb", delete=False)
     try:
         requirement_file.write(args.requirement.encode("utf-8"))

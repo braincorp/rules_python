@@ -41,7 +41,7 @@ def main() -> None:
 
     base_pip_args = [sys.executable, "-m", "pip"]
     default_pip_args = [
-        "download" if args.download_only else "wheel",
+        "wheel",
         "--no-deps",
         ] + deserialized_args["extra_pip_args"]
     if args.isolated:

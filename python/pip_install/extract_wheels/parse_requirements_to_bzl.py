@@ -177,14 +177,16 @@ def generate_parsed_requirements_contents(
             name = requirement.split(" ")[0].split("=")[0]
             return _annotations.get(name)
 
-        def install_deps():
+        def install_deps(**whl_library_kwargs):
+            whl_config = dict(_config)
+            whl_config.update(whl_library_kwargs)
             for name, requirement, platform in _packages:
                 whl_library(
                     name = name,
                     requirement = requirement,
                     annotation = _get_annotation(requirement),
                     pip_platform_definition = platform,
-                    **_config
+                    **whl_config
                 )
             for name, pkg_select_items, whl_select_items in _aliases:
                 platform_alias(

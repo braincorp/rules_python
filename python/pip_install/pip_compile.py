@@ -119,8 +119,8 @@ if __name__ == "__main__":
             elif e.code == 0:
                 golden_filename = _select_golden_requirements_file(
                     requirements_txt,
-                    requirements_darwin,
                     requirements_linux,
+                    requirements_darwin,
                     requirements_windows,
                 )
                 golden = open(golden_filename).readlines()

@@ -98,7 +98,12 @@ def parse_whl_library_args(args: argparse.Namespace) -> Dict[str, Any]:
     whl_library_args.setdefault("python_interpreter", sys.executable)
 
     # These arguments are not used by `whl_library`
-    for arg in ("requirements_lock", "requirements_lock_label", "annotations"):
+    for arg in (
+        "requirements_lock",
+        "requirements_lock_label",
+        "annotations",
+        "bzlmod",
+    ):
         if arg in whl_library_args:
             whl_library_args.pop(arg)
 
@@ -107,9 +112,11 @@ def parse_whl_library_args(args: argparse.Namespace) -> Dict[str, Any]:
 
 def generate_parsed_requirements_contents(
     requirements_lock: Path,
+    repo: str,
     repo_prefix: str,
     whl_library_args: Dict[str, Any],
     annotations: Dict[str, str] = dict(),
+    bzlmod: bool = False,
 ) -> str:
     """
     Parse each requirement from the requirements_lock file, and prepare arguments for each
@@ -125,6 +132,7 @@ def generate_parsed_requirements_contents(
     repo_names_and_reqs = repo_names_and_requirements(
         install_req_and_lines, repo_prefix, pip_platform_definitions,
     )
+
     all_requirements = ", ".join(
         [
             bazel.sanitised_repo_library_label(ir.name, repo_prefix=repo_prefix)
@@ -137,8 +145,22 @@ def generate_parsed_requirements_contents(
             for ir, _ in install_req_and_lines
         ]
     )
+
+    install_deps_macro = """
+        def install_deps(**whl_library_kwargs):
+            whl_config = dict(_config)
+            whl_config.update(whl_library_kwargs)
+            for name, requirement in _packages:
+                whl_library(
+                    name = name,
+                    requirement = requirement,
+                    annotation = _get_annotation(requirement),
+                    **whl_config
+                )
+"""
     return textwrap.dedent(
-        """\
+        (
+            """\
 
         load("@rules_python//python/pip_install:pip_repository.bzl", "whl_library", "platform_alias")
 
@@ -150,20 +172,29 @@ def generate_parsed_requirements_contents(
         _aliases = {alias_definitions}
         _config = {args}
         _annotations = {annotations}
+        _bzlmod = {bzlmod}
 
         def _clean_name(name):
             return name.replace("-", "_").replace(".", "_").lower()
 
         def requirement(name):
+            if _bzlmod:
+                return "@@{repo}//:" + _clean_name(name) + "_{py_library_label}"
             return "@{repo_prefix}" + _clean_name(name) + "//:{py_library_label}"
 
         def whl_requirement(name):
+            if _bzlmod:
+                return "@@{repo}//:" + _clean_name(name) + "_{wheel_file_label}"
             return "@{repo_prefix}" + _clean_name(name) + "//:{wheel_file_label}"
 
         def data_requirement(name):
+            if _bzlmod:
+                return "@@{repo}//:" + _clean_name(name) + "_{data_label}"
             return "@{repo_prefix}" + _clean_name(name) + "//:{data_label}"
 
         def dist_info_requirement(name):
+            if _bzlmod:
+                return "@@{repo}//:" + _clean_name(name) + "_{dist_info_label}"
             return "@{repo_prefix}" + _clean_name(name) + "//:{dist_info_label}"
 
         def entry_point(pkg, script = None):
@@ -176,25 +207,9 @@ def generate_parsed_requirements_contents(
             # down wo `setuptools`.
             name = requirement.split(" ")[0].split("=")[0].split("[")[0]
             return _annotations.get(name)
-
-        def install_deps(**whl_library_kwargs):
-            whl_config = dict(_config)
-            whl_config.update(whl_library_kwargs)
-            for name, requirement, platform in _packages:
-                whl_library(
-                    name = name,
-                    requirement = requirement,
-                    annotation = _get_annotation(requirement),
-                    pip_platform_definition = platform,
-                    **whl_config
-                )
-            for name, pkg_select_items, whl_select_items in _aliases:
-                platform_alias(
-                    name = name,
-                    pkg_select_items = pkg_select_items,
-                    whl_select_items = whl_select_items
-                )
-        """.format(
+"""
+            + (install_deps_macro if not bzlmod else "")
+        ).format(
             all_requirements=all_requirements,
             all_whl_requirements=all_whl_requirements,
             annotations=json.dumps(annotations),
@@ -204,11 +219,13 @@ def generate_parsed_requirements_contents(
             entry_point_prefix=bazel.WHEEL_ENTRY_POINT_PREFIX,
             py_library_label=bazel.PY_LIBRARY_LABEL,
             repo_names_and_reqs=repo_names_and_reqs,
+            repo=repo,
             repo_prefix=repo_prefix,
             wheel_file_label=bazel.WHEEL_FILE_LABEL,
             whl_definitions=repo_names_and_reqs.whls,
             alias_definitions=repo_names_and_reqs.aliases,
             pip_platform_definitions=pip_platform_definitions,
+            bzlmod=bzlmod,
         )
     )
 
@@ -266,6 +283,12 @@ If set, it will take precedence over python_interpreter.",
         help="A json encoded file containing annotations for rendered packages.",
     )
     parser.add_argument(
+        "--bzlmod",
+        type=coerce_to_bool,
+        default=False,
+        help="Whether this script is run under bzlmod. Under bzlmod we don't generate the install_deps() macro as it isn't needed.",
+    )
+    parser.add_argument(
         "--pip_platform_definitions",
         help="A map of select keys to platform definitions in the form "
              + "<platform>-<python_version>-<implementation>-<abi>",
@@ -308,12 +331,15 @@ If set, it will take precedence over python_interpreter.",
             )
         )
     )
+
     output.write(
         generate_parsed_requirements_contents(
             requirements_lock=args.requirements_lock,
+            repo=args.repo,
             repo_prefix=args.repo_prefix,
             whl_library_args=whl_library_args,
             annotations=annotated_requirements,
+            bzlmod=args.bzlmod,
         )
     )
 
